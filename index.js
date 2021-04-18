@@ -86,6 +86,14 @@ function sendBulletsPositions() {
   });
 }
 
+function sendHitsData(hits) {
+  if (hits.length > 0) {
+    wsServer.connections.forEach((connection) => {
+      connection.send(JSON.stringify({ hits: hits }));
+    });
+  }
+}
+
 function sendPlayerDisconnected(color) {
   wsServer.connections.forEach((connection) => {
     connection.send(JSON.stringify({ disconnected: color }));
@@ -121,8 +129,12 @@ function handleCommand(player, command) {
 //Создание нового игрока со случайным цветом и стартовой позицией
 function createNewPlayer() {
   let newPlayer = {
-    left: Math.floor(Math.random() * gameSettings.boardWidth),
-    top: Math.floor(Math.random() * gameSettings.boardHeight),
+    left: Math.floor(
+      Math.random() * (gameSettings.boardWidth - gameSettings.playerSize)
+    ),
+    top: Math.floor(
+      Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
+    ),
     rotation: 0,
     bullets: 0,
     color: colors.shift(),
@@ -176,6 +188,7 @@ function onPlayerFire(player) {
 }
 
 function updateBullets() {
+  const hits = [];
   bullets.forEach((element) => {
     let color = Object.keys(element)[0];
 
@@ -185,25 +198,42 @@ function updateBullets() {
     });
 
     //Обновить координаты снарядов
-    element[color].forEach((bullet) => {
+    element[color].forEach((bullet, bulletIndex) => {
       bullet.top +=
         bulletTravelDistancePerTick *
         bulletTravelDirection.get(bullet.rotation)[0];
       bullet.left +=
         bulletTravelDistancePerTick *
         bulletTravelDirection.get(bullet.rotation)[1];
+
+      players.forEach((player) => {
+        if (checkBulletHit(bullet, player)) {
+          hits.push({ hit: player.color, attacker: color });
+          element[color].splice(bulletIndex, 1);
+        }
+      });
     });
   });
 
+  sendHitsData(hits);
   sendBulletsPositions();
 }
 
 function isBulletInGameArea(bullet) {
   return (
     bullet.top >= 0 &&
-    bullet.top <= gameSettings.boardHeight &&
+    bullet.top <= gameSettings.boardHeight - gameSettings.bulletSize &&
     bullet.left >= 0 &&
-    bullet.left <= gameSettings.boardWidth
+    bullet.left <= gameSettings.boardWidth - gameSettings.bulletSize
+  );
+}
+
+function checkBulletHit(bullet, player) {
+  return (
+    bullet.top >= player.top &&
+    bullet.top <= player.top + gameSettings.playerSize &&
+    bullet.left >= player.left &&
+    bullet.left <= player.left + gameSettings.playerSize
   );
 }
 
