@@ -6,13 +6,19 @@ let gameArea, socket;
 const boardWidth = 1000;
 const boardHeight = 667;
 const bulletSize = 16;
+const playerHealth = 3;
+const explosionAnimDuration = 1200;
 
-const commands = new Map();
-commands.set("ArrowLeft", "left");
-commands.set("ArrowUp", "up");
-commands.set("ArrowRight", "right");
-commands.set("ArrowDown", "down");
-commands.set(" ", "fire");
+const commands = new Map([
+  ["ArrowLeft", "left"],
+  ["ArrowUp", "up"],
+  ["ArrowRight", "right"],
+  ["ArrowDown", "down"],
+  [" ", "fire"],
+]);
+
+//для корректной смены спрайтов повреждения/уничтожения
+const animTimeoutIds = new Map();
 
 function init() {
   gameArea = document.getElementById("game-area");
@@ -43,7 +49,11 @@ function init() {
       //В пришедшем сообщении указан цвет отсоединившегося игрока
       onPlayerDisconnected(gameObject.disconnected);
     } else if (gameObject.hasOwnProperty("hits")) {
-      onHitMessage(gameObject.hits);
+      console.log(message.data);
+      onHitMessage(gameObject);
+    } else if (gameObject.hasOwnProperty("killed")) {
+      console.log(message.data);
+      onKilledPlayersMessage(gameObject);
     }
   };
 }
@@ -55,6 +65,7 @@ function handleKeyPress(e) {
 function onPlayersPositionUpdate(players) {
   players.forEach((player) => {
     let plDiv = document.getElementById(player.color);
+    let plImg = document.querySelector(`#${player.color} img`);
     if (!plDiv) {
       //Игрок только что подключился, создать его на поле
       plDiv = document.createElement("div");
@@ -63,11 +74,39 @@ function onPlayersPositionUpdate(players) {
       plImg = document.createElement("img");
       plImg.src = "./images/tank_" + player.color + ".png";
       plDiv.appendChild(plImg);
+      drawHP(plDiv);
+      animTimeoutIds.set(player.color, null);
     }
     plDiv.style.top = player.top + "px";
     plDiv.style.left = player.left + "px";
-    plDiv.style.transform = `rotate(${player.rotation}deg)`;
+    plImg.style.transform = `rotate(${player.rotation}deg)`;
+
     gameArea.appendChild(plDiv);
+  });
+}
+
+function drawHP(plDiv) {
+  let healthbar = document.createElement("div");
+  healthbar.classList.add("healthbar");
+  for (let i = 0; i < playerHealth; i++) {
+    let healthTick = document.createElement("div");
+    healthTick.classList.add("health-tick");
+    healthTick.classList.add("full");
+    healthbar.appendChild(healthTick);
+  }
+  plDiv.appendChild(healthbar);
+}
+
+function onHpUpdate(playerColor, hitPoints) {
+  let healthTicks = document.querySelectorAll(`#${playerColor} .health-tick`);
+  healthTicks.forEach((healthTick, index) => {
+    if (index <= hitPoints - 1) {
+      healthTick.classList.remove("low");
+      healthTick.classList.add("full");
+    } else {
+      healthTick.classList.remove("full");
+      healthTick.classList.add("low");
+    }
   });
 }
 
@@ -129,17 +168,36 @@ function deleteBulletsNotExistingOnServer(
   });
 }
 
-function onHitMessage(hits) {
-  hits.forEach((hitData) => {
+function onHitMessage(message) {
+  message.hits.forEach((hitData) => {
     let plImg = document.querySelector(`#${hitData.hit} img`);
     plImg.src = "./images/tank_hit.png";
+    if (hitData.hpLeft > 0) {
+      let tId = setTimeout(() => {
+        plImg.src = `./images/tank_${hitData.hit}.png`;
+      }, 200);
+      animTimeoutIds.set(hitData.hit, tId);
+    }
+    onHpUpdate(hitData.hit, hitData.hpLeft);
+  });
+}
+
+function onKilledPlayersMessage(message) {
+  message.killed.forEach((killedPlayerColor) => {
+    let killedPlayerDiv = document.querySelector(`#${killedPlayerColor}`);
+    let img = document.querySelector(`#${killedPlayerColor} img`);
+    img.src = "./images/explosion.gif";
+    let healthbar = document.querySelector(`#${killedPlayerColor} .healthbar`);
+    healthbar.style.display = "none";
+    clearTimeout(animTimeoutIds.get(killedPlayerColor));
     setTimeout(() => {
-      plImg.src = `./images/tank_${hitData.hit}.png`;
-    }, 200);
+      killedPlayerDiv.parentNode.removeChild(killedPlayerDiv);
+    }, explosionAnimDuration);
   });
 }
 
 function onPlayerDisconnected(color) {
+  animTimeoutIds.delete(color);
   let plDiv = document.getElementById(color);
   if (!plDiv) {
     return;

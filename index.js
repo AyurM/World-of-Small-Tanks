@@ -9,31 +9,36 @@ app.use(express.static("public"));
 const gameSettings = {
   playerSpeed: 10,
   playerSize: 48,
+  playerHealth: 3,
   bulletSize: 16,
   bulletSpeed: 500,
   maxBulletsPerPlayer: 3,
   boardWidth: 1000,
   boardHeight: 667,
   tickDuration: 17,
+  respawnDelay: 3000,
 };
 
 let bulletTravelDistancePerTick = Math.round(
   (gameSettings.bulletSpeed * gameSettings.tickDuration) / 1000
 );
-const bulletSpawnDirection = new Map();
-bulletSpawnDirection.set(0, [-1, 1]);
-bulletSpawnDirection.set(90, [1, 3]);
-bulletSpawnDirection.set(-90, [1, -1]);
-bulletSpawnDirection.set(180, [3, 1]);
+const bulletSpawnDirection = new Map([
+  [0, [-1, 1]],
+  [90, [1, 3]],
+  [-90, [1, -1]],
+  [180, [3, 1]],
+]);
 
-const bulletTravelDirection = new Map();
-bulletTravelDirection.set(0, [-1, 0]);
-bulletTravelDirection.set(90, [0, 1]);
-bulletTravelDirection.set(-90, [0, -1]);
-bulletTravelDirection.set(180, [1, 0]);
+const bulletTravelDirection = new Map([
+  [0, [-1, 0]],
+  [90, [0, 1]],
+  [-90, [0, -1]],
+  [180, [1, 0]],
+]);
 
 const colors = ["blue", "green", "yellow", "purple", "red", "darkblue"];
 const players = [];
+const hitPoints = [];
 const bullets = [];
 const bulletCounters = [];
 
@@ -52,6 +57,7 @@ wsServer.on("request", function (request) {
 
   //Добавить созданного игрока к состоянию игры
   players.push(player);
+  hitPoints.push({ [player.color]: gameSettings.playerHealth });
   bullets.push({ [player.color]: [] });
   bulletCounters.push({ [player.color]: 0 });
   //Разослать обновленные позиции игроков всем игрокам
@@ -90,6 +96,14 @@ function sendHitsData(hits) {
   if (hits.length > 0) {
     wsServer.connections.forEach((connection) => {
       connection.send(JSON.stringify({ hits: hits }));
+    });
+  }
+}
+
+function sendKillsData(killedPlayers) {
+  if (killedPlayers.length > 0) {
+    wsServer.connections.forEach((connection) => {
+      connection.send(JSON.stringify({ killed: killedPlayers }));
     });
   }
 }
@@ -136,7 +150,6 @@ function createNewPlayer() {
       Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
     ),
     rotation: 0,
-    bullets: 0,
     color: colors.shift(),
   };
 
@@ -155,6 +168,7 @@ function onPlayerDisconnect(disconnectedPlayer) {
 
   bullets.splice(bIndex, 1);
   bulletCounters.splice(bIndex, 1);
+  hitPoints.splice(bIndex, 1);
   //Разослать сообщение о дисконнекте игрока
   sendPlayerDisconnected(disconnectedPlayer.color);
   //Вернуть цвет игрока в общий массив цветов
@@ -189,6 +203,7 @@ function onPlayerFire(player) {
 
 function updateBullets() {
   const hits = [];
+  const killedPlayers = [];
   bullets.forEach((element) => {
     let color = Object.keys(element)[0];
 
@@ -199,16 +214,20 @@ function updateBullets() {
 
     //Обновить координаты снарядов
     element[color].forEach((bullet, bulletIndex) => {
-      bullet.top +=
-        bulletTravelDistancePerTick *
-        bulletTravelDirection.get(bullet.rotation)[0];
-      bullet.left +=
-        bulletTravelDistancePerTick *
-        bulletTravelDirection.get(bullet.rotation)[1];
+      moveBullet(bullet);
 
+      //Проверить попадания снарядов по игрокам
       players.forEach((player) => {
         if (checkBulletHit(bullet, player)) {
-          hits.push({ hit: player.color, attacker: color });
+          let hp = --hitPoints.find((hpElement) => {
+            return hpElement.hasOwnProperty(player.color);
+          })[player.color];
+          if (hp <= 0) {
+            killedPlayers.push(player.color);
+            onPlayerDeath(player);
+          } else {
+            hits.push({ hit: player.color, hpLeft: hp, attacker: color });
+          }
           element[color].splice(bulletIndex, 1);
         }
       });
@@ -216,6 +235,7 @@ function updateBullets() {
   });
 
   sendHitsData(hits);
+  sendKillsData(killedPlayers);
   sendBulletsPositions();
 }
 
@@ -228,6 +248,13 @@ function isBulletInGameArea(bullet) {
   );
 }
 
+function moveBullet(bullet) {
+  bullet.top +=
+    bulletTravelDistancePerTick * bulletTravelDirection.get(bullet.rotation)[0];
+  bullet.left +=
+    bulletTravelDistancePerTick * bulletTravelDirection.get(bullet.rotation)[1];
+}
+
 function checkBulletHit(bullet, player) {
   return (
     bullet.top >= player.top &&
@@ -235,6 +262,23 @@ function checkBulletHit(bullet, player) {
     bullet.left >= player.left &&
     bullet.left <= player.left + gameSettings.playerSize
   );
+}
+
+function onPlayerDeath(player) {
+  players.splice(players.indexOf(player), 1);
+  setTimeout(() => {
+    player.left = Math.floor(
+      Math.random() * (gameSettings.boardWidth - gameSettings.playerSize)
+    );
+    player.top = Math.floor(
+      Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
+    );
+    hitPoints.find((element) => {
+      return element.hasOwnProperty(player.color);
+    })[player.color] = gameSettings.playerHealth;
+    players.push(player);
+    sendPlayerPositions();
+  }, gameSettings.respawnDelay);
 }
 
 setInterval(updateBullets, gameSettings.tickDuration);
