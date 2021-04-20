@@ -50,8 +50,16 @@ let wsServer = new webSocketServer({
 
 //WebSocket сервер
 wsServer.on("request", function (request) {
-  console.log(new Date() + " Connection from " + request.origin);
+  if (colors.length === 0) {
+    request.reject();
+    console.log(
+      new Date() + " Connection from " + request.origin + " rejected"
+    );
+    return;
+  }
+
   let connection = request.accept(null, request.origin);
+  console.log(new Date() + " Connection from " + request.origin + " accepted");
 
   let player = createNewPlayer();
 
