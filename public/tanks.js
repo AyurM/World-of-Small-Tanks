@@ -42,9 +42,9 @@ function init() {
     if (gameObject.hasOwnProperty("players")) {
       //Сообщение с обновленными позициями игроков
       onPlayersPositionUpdate(gameObject.players);
-    } else if (gameObject.hasOwnProperty("bullets")) {
+    } else if (gameObject.hasOwnProperty("bulletMap")) {
       //Сообщение с обновленными позициями снарядов игроков
-      onBulletsPositionUpdate(gameObject.bullets);
+      onBulletsPositionUpdate(new Map(gameObject.bulletMap));
     } else if (gameObject.hasOwnProperty("disconnected")) {
       //В пришедшем сообщении указан цвет отсоединившегося игрока
       onPlayerDisconnected(gameObject.disconnected);
@@ -70,8 +70,8 @@ function onPlayersPositionUpdate(players) {
     if (!plDiv) {
       //Игрок только что подключился, создать его на поле
       plDiv = document.createElement("div");
-      plDiv.setAttribute("id", player.color);
-      plDiv.setAttribute("class", "player");
+      plDiv.id = player.color;
+      plDiv.className = "player";
       plImg = document.createElement("img");
       plImg.src = "./images/tank_" + player.color + ".png";
       plDiv.appendChild(plImg);
@@ -88,7 +88,7 @@ function onPlayersPositionUpdate(players) {
 
 function drawHP(plDiv) {
   let healthbar = document.createElement("div");
-  healthbar.classList.add("healthbar");
+  healthbar.className = "healthbar";
   for (let i = 0; i < playerHealth; i++) {
     let healthTick = document.createElement("div");
     healthTick.classList.add("health-tick");
@@ -116,18 +116,16 @@ function highlightPlayer() {
   playerDiv.classList.add("this-player");
 }
 
-function onBulletsPositionUpdate(bullets) {
+function onBulletsPositionUpdate(bulletMap) {
   let allRenderedBullets = document.querySelectorAll(".bullet");
   allRenderedBullets = Array.prototype.slice.call(allRenderedBullets);
 
-  bullets.forEach((element) => {
-    let playerColor = Object.keys(element)[0];
+  bulletMap.forEach((bullets, playerColor) => {
     const existingBulletsIds = [];
-    element[playerColor].forEach((bullet) => {
+    bullets.forEach((bullet) => {
       existingBulletsIds.push(bullet.id);
       updateBulletPosition(bullet, playerColor);
     });
-
     deleteBulletsNotExistingOnServer(
       allRenderedBullets,
       existingBulletsIds,
@@ -141,8 +139,8 @@ function updateBulletPosition(bullet, color) {
   if (!bulletDiv) {
     //Создание нового снаряда
     bulletDiv = document.createElement("div");
-    bulletDiv.setAttribute("class", "bullet");
-    bulletDiv.setAttribute("id", bullet.id);
+    bulletDiv.className = "bullet";
+    bulletDiv.id = bullet.id;
     let img = document.createElement("img");
     img.src = `./images/bullet_${color}.png`;
     bulletDiv.appendChild(img);

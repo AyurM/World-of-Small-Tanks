@@ -42,9 +42,9 @@ const connectionMap = new Map();
 
 const colors = ["blue", "green", "yellow", "purple", "red", "darkblue"];
 const players = [];
-const hitPoints = [];
-const bullets = [];
-const bulletCounters = [];
+const hitPoints = new Map();
+const bulletMap = new Map();
+const bulletCounters = new Map();
 
 //Создать сервер
 const server = http.createServer(app);
@@ -96,7 +96,9 @@ function sendPlayerPositions() {
 
 function sendBulletsPositions() {
   wsServer.connections.forEach((connection) => {
-    connection.send(JSON.stringify({ bullets: bullets }));
+    connection.send(
+      JSON.stringify({ bulletMap: Array.from(bulletMap.entries()) })
+    );
   });
 }
 
@@ -153,9 +155,9 @@ function createNewPlayer() {
 
 function initPlayer(player, ws_conn) {
   players.push(player);
-  hitPoints.push({ [player.color]: gameSettings.playerHealth });
-  bullets.push({ [player.color]: [] });
-  bulletCounters.push({ [player.color]: 0 });
+  hitPoints.set(player.color, gameSettings.playerHealth);
+  bulletMap.set(player.color, []);
+  bulletCounters.set(player.color, 0);
   connectionMap.set(player.color, ws_conn);
 }
 
@@ -165,13 +167,9 @@ function onPlayerDisconnect(disconnectedPlayer) {
   );
   //Убрать игрока из состояния игры
   players.splice(players.indexOf(disconnectedPlayer), 1);
-  let bIndex = bullets.findIndex((element) => {
-    return element.hasOwnProperty(disconnectedPlayer.color);
-  });
-
-  bullets.splice(bIndex, 1);
-  bulletCounters.splice(bIndex, 1);
-  hitPoints.splice(bIndex, 1);
+  hitPoints.delete(disconnectedPlayer.color);
+  bulletMap.delete(disconnectedPlayer.color);
+  bulletCounters.delete(disconnectedPlayer.color);
   connectionMap.delete(disconnectedPlayer.color);
   //Разослать сообщение о дисконнекте игрока
   sendPlayerDisconnected(disconnectedPlayer.color);
@@ -180,23 +178,18 @@ function onPlayerDisconnect(disconnectedPlayer) {
 }
 
 function onPlayerFire(player) {
-  let index = bullets.findIndex((element) => {
-    return element.hasOwnProperty(player.color);
-  });
-
-  let bulletArray = bullets[index][player.color];
-
   //Ограничение на максимальное количество снарядов, выпускаемых одним игроком
-  if (bulletArray.length >= gameSettings.maxBulletsPerPlayer) {
+  if (bulletMap.get(player.color).length >= gameSettings.maxBulletsPerPlayer) {
     return;
   }
 
-  let newBullet = createBullet(player, bulletCounters[index][player.color]);
-  bulletCounters[index][player.color]++;
-  bulletArray.push(newBullet);
+  let bulletNumber = bulletCounters.get(player.color);
+  let newBullet = createBullet(player, bulletNumber);
+  bulletCounters.set(player.color, ++bulletNumber);
+  bulletMap.get(player.color).push(newBullet);
 }
 
-function createBullet(player, bulletId) {
+function createBullet(player, bulletNumber) {
   let newBullet = {
     top:
       player.top +
@@ -205,7 +198,7 @@ function createBullet(player, bulletId) {
       player.left +
       gameSettings.bulletSize * bulletSpawnDirection.get(player.rotation)[1],
     rotation: player.rotation,
-    id: `${player.color}-${bulletId}`,
+    id: `${player.color}-${bulletNumber}`,
   };
   return newBullet;
 }
@@ -213,32 +206,36 @@ function createBullet(player, bulletId) {
 function updateBullets() {
   const hits = [];
   const killedPlayers = [];
-  bullets.forEach((element) => {
-    let color = Object.keys(element)[0];
 
-    //Убрать снаряды, вылетевшие за пределы игровой зоны
-    element[color] = element[color].filter((bullet) => {
+  bulletMap.forEach((bulletArray, playerColor) => {
+    tempBulletArray = bulletArray.filter((bullet) => {
       return isBulletInGameArea(bullet);
     });
 
     //Обновить координаты снарядов
-    element[color].forEach((bullet, bulletIndex) => {
+    tempBulletArray.forEach((bullet, bulletIndex) => {
       moveBullet(bullet);
 
       //Проверить попадания снарядов по игрокам
-      players.forEach((player) => {
-        if (checkBulletHit(bullet, player)) {
-          let hp = getPlayerHpAfterHit(player);
+      players.forEach((otherPlayer) => {
+        if (checkBulletHit(bullet, otherPlayer)) {
+          let hp = getPlayerHpAfterHit(otherPlayer);
           if (hp <= 0) {
-            killedPlayers.push(player.color);
-            onPlayerDeath(player);
+            killedPlayers.push(otherPlayer.color);
+            onPlayerDeath(otherPlayer);
           } else {
-            hits.push({ hit: player.color, hpLeft: hp, attacker: color });
+            hits.push({
+              hit: otherPlayer.color,
+              hpLeft: hp,
+              attacker: playerColor,
+            });
           }
-          element[color].splice(bulletIndex, 1);
+          tempBulletArray.splice(bulletIndex, 1);
         }
       });
     });
+
+    bulletMap.set(playerColor, tempBulletArray);
   });
 
   sendHitsData(hits);
@@ -272,9 +269,9 @@ function checkBulletHit(bullet, player) {
 }
 
 function getPlayerHpAfterHit(player) {
-  return --hitPoints.find((hpElement) => {
-    return hpElement.hasOwnProperty(player.color);
-  })[player.color];
+  let result = hitPoints.get(player.color);
+  hitPoints.set(player.color, --result);
+  return result;
 }
 
 function onPlayerDeath(player) {
@@ -289,9 +286,7 @@ function respawnPlayer(player) {
   player.top = Math.floor(
     Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
   );
-  hitPoints.find((element) => {
-    return element.hasOwnProperty(player.color);
-  })[player.color] = gameSettings.playerHealth;
+  hitPoints.set(player.color, gameSettings.playerHealth);
   players.push(player);
   sendPlayerPositions();
   connectionMap
