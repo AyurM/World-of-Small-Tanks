@@ -2,7 +2,7 @@ window.onload = init;
 
 const WS_SERVER_ADDRESS = "ws://192.168.0.4:3000";
 
-let gameArea, socket;
+let gameArea, socket, thisPlayerColor;
 const boardWidth = 1000;
 const boardHeight = 667;
 const bulletSize = 16;
@@ -49,11 +49,12 @@ function init() {
       //В пришедшем сообщении указан цвет отсоединившегося игрока
       onPlayerDisconnected(gameObject.disconnected);
     } else if (gameObject.hasOwnProperty("hits")) {
-      console.log(message.data);
       onHitMessage(gameObject);
     } else if (gameObject.hasOwnProperty("killed")) {
-      console.log(message.data);
       onKilledPlayersMessage(gameObject);
+    } else if (gameObject.hasOwnProperty("yourColor")) {
+      thisPlayerColor = gameObject.yourColor;
+      highlightPlayer();
     }
   };
 }
@@ -108,6 +109,11 @@ function onHpUpdate(playerColor, hitPoints) {
       healthTick.classList.add("low");
     }
   });
+}
+
+function highlightPlayer() {
+  let playerDiv = document.querySelector(`#${thisPlayerColor}`);
+  playerDiv.classList.add("this-player");
 }
 
 function onBulletsPositionUpdate(bullets) {
@@ -186,6 +192,11 @@ function onKilledPlayersMessage(message) {
   message.killed.forEach((killedPlayerColor) => {
     let killedPlayerDiv = document.querySelector(`#${killedPlayerColor}`);
     let img = document.querySelector(`#${killedPlayerColor} img`);
+
+    if (killedPlayerColor == thisPlayerColor) {
+      killedPlayerDiv.classList.remove("this-player");
+    }
+
     img.src = "./images/explosion.gif";
     let healthbar = document.querySelector(`#${killedPlayerColor} .healthbar`);
     healthbar.style.display = "none";

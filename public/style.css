@@ -32,6 +32,11 @@ body {
   height: 100%;
 }
 
+.this-player > img {
+  filter: drop-shadow(3px 0 0 green) drop-shadow(-3px 0 0 green)
+    drop-shadow(0 3px 0 green) drop-shadow(0 -3px 0 green);
+}
+
 .healthbar {
   position: absolute;
   top: -8px;

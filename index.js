@@ -2,6 +2,8 @@ const http = require("http");
 const express = require("express");
 const webSocketServer = require("websocket").server;
 
+const MoveCommandsMap = require("./movement_commands");
+
 const app = express();
 app.use(express.static("public"));
 
@@ -16,7 +18,7 @@ const gameSettings = {
   boardWidth: 1000,
   boardHeight: 667,
   tickDuration: 17,
-  respawnDelay: 3000,
+  respawnDelay: 4000,
 };
 
 let bulletTravelDistancePerTick = Math.round(
@@ -35,6 +37,8 @@ const bulletTravelDirection = new Map([
   [-90, [0, -1]],
   [180, [1, 0]],
 ]);
+
+const connectionMap = new Map();
 
 const colors = ["blue", "green", "yellow", "purple", "red", "darkblue"];
 const players = [];
@@ -64,18 +68,14 @@ wsServer.on("request", function (request) {
   let player = createNewPlayer();
 
   //Добавить созданного игрока к состоянию игры
-  players.push(player);
-  hitPoints.push({ [player.color]: gameSettings.playerHealth });
-  bullets.push({ [player.color]: [] });
-  bulletCounters.push({ [player.color]: 0 });
+  initPlayer(player, connection);
   //Разослать обновленные позиции игроков всем игрокам
   sendPlayerPositions();
-
+  connection.send(JSON.stringify({ yourColor: player.color }));
   //Обработчик сообщений от игрока
   connection.on("message", (message) => {
     // console.log("From: " + player.color + "; Msg: " + message.utf8Data);
     handleCommand(player, message.utf8Data); //обработать команду
-    sendPlayerPositions(); //разослать обновленное состояние игры всем игрокам
   });
 
   //Пользователь отсоединился
@@ -123,26 +123,13 @@ function sendPlayerDisconnected(color) {
 }
 
 function handleCommand(player, command) {
-  if (command === "left") {
-    player.rotation = -90;
-    if (player.left > gameSettings.playerSpeed) {
-      player.left -= gameSettings.playerSpeed;
-    }
-  } else if (command === "right") {
-    player.rotation = 90;
-    if (player.left < gameSettings.boardWidth - gameSettings.playerSize) {
-      player.left += gameSettings.playerSpeed;
-    }
-  } else if (command === "up") {
-    player.rotation = 0;
-    if (player.top > gameSettings.playerSpeed) {
-      player.top -= gameSettings.playerSpeed;
-    }
-  } else if (command === "down") {
-    player.rotation = 180;
-    if (player.top < gameSettings.boardHeight - gameSettings.playerSize) {
-      player.top += gameSettings.playerSpeed;
-    }
+  if (!players.includes(player)) {
+    return;
+  }
+
+  if (MoveCommandsMap.has(command)) {
+    MoveCommandsMap.get(command)(player, gameSettings);
+    sendPlayerPositions();
   } else if (command === "fire") {
     onPlayerFire(player);
   }
@@ -164,6 +151,14 @@ function createNewPlayer() {
   return newPlayer;
 }
 
+function initPlayer(player, ws_conn) {
+  players.push(player);
+  hitPoints.push({ [player.color]: gameSettings.playerHealth });
+  bullets.push({ [player.color]: [] });
+  bulletCounters.push({ [player.color]: 0 });
+  connectionMap.set(player.color, ws_conn);
+}
+
 function onPlayerDisconnect(disconnectedPlayer) {
   console.log(
     new Date() + " Player " + disconnectedPlayer.color + " disconnected"
@@ -177,6 +172,7 @@ function onPlayerDisconnect(disconnectedPlayer) {
   bullets.splice(bIndex, 1);
   bulletCounters.splice(bIndex, 1);
   hitPoints.splice(bIndex, 1);
+  connectionMap.delete(disconnectedPlayer.color);
   //Разослать сообщение о дисконнекте игрока
   sendPlayerDisconnected(disconnectedPlayer.color);
   //Вернуть цвет игрока в общий массив цветов
@@ -195,6 +191,12 @@ function onPlayerFire(player) {
     return;
   }
 
+  let newBullet = createBullet(player, bulletCounters[index][player.color]);
+  bulletCounters[index][player.color]++;
+  bulletArray.push(newBullet);
+}
+
+function createBullet(player, bulletId) {
   let newBullet = {
     top:
       player.top +
@@ -203,10 +205,9 @@ function onPlayerFire(player) {
       player.left +
       gameSettings.bulletSize * bulletSpawnDirection.get(player.rotation)[1],
     rotation: player.rotation,
-    id: `${player.color}-${bulletCounters[index][player.color]}`,
+    id: `${player.color}-${bulletId}`,
   };
-  bulletCounters[index][player.color]++;
-  bulletArray.push(newBullet);
+  return newBullet;
 }
 
 function updateBullets() {
@@ -227,9 +228,7 @@ function updateBullets() {
       //Проверить попадания снарядов по игрокам
       players.forEach((player) => {
         if (checkBulletHit(bullet, player)) {
-          let hp = --hitPoints.find((hpElement) => {
-            return hpElement.hasOwnProperty(player.color);
-          })[player.color];
+          let hp = getPlayerHpAfterHit(player);
           if (hp <= 0) {
             killedPlayers.push(player.color);
             onPlayerDeath(player);
@@ -272,21 +271,32 @@ function checkBulletHit(bullet, player) {
   );
 }
 
+function getPlayerHpAfterHit(player) {
+  return --hitPoints.find((hpElement) => {
+    return hpElement.hasOwnProperty(player.color);
+  })[player.color];
+}
+
 function onPlayerDeath(player) {
   players.splice(players.indexOf(player), 1);
-  setTimeout(() => {
-    player.left = Math.floor(
-      Math.random() * (gameSettings.boardWidth - gameSettings.playerSize)
-    );
-    player.top = Math.floor(
-      Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
-    );
-    hitPoints.find((element) => {
-      return element.hasOwnProperty(player.color);
-    })[player.color] = gameSettings.playerHealth;
-    players.push(player);
-    sendPlayerPositions();
-  }, gameSettings.respawnDelay);
+  setTimeout(respawnPlayer, gameSettings.respawnDelay, player);
+}
+
+function respawnPlayer(player) {
+  player.left = Math.floor(
+    Math.random() * (gameSettings.boardWidth - gameSettings.playerSize)
+  );
+  player.top = Math.floor(
+    Math.random() * (gameSettings.boardHeight - gameSettings.playerSize)
+  );
+  hitPoints.find((element) => {
+    return element.hasOwnProperty(player.color);
+  })[player.color] = gameSettings.playerHealth;
+  players.push(player);
+  sendPlayerPositions();
+  connectionMap
+    .get(player.color)
+    .send(JSON.stringify({ yourColor: player.color }));
 }
 
 setInterval(updateBullets, gameSettings.tickDuration);
