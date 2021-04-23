@@ -43,8 +43,10 @@ const connectionMap = new Map();
 const colors = ["blue", "green", "yellow", "purple", "red", "darkblue"];
 const players = [];
 const hitPoints = new Map();
+const scores = new Map();
 const bulletMap = new Map();
 const bulletCounters = new Map();
+const respawnTimeoutIds = new Map();
 
 //Создать сервер
 const server = http.createServer(app);
@@ -71,6 +73,7 @@ wsServer.on("request", function (request) {
   initPlayer(player, connection);
   //Разослать обновленные позиции игроков всем игрокам
   sendPlayerPositions();
+  sendScores();
   connection.send(JSON.stringify({ yourColor: player.color }));
   //Обработчик сообщений от игрока
   connection.on("message", (message) => {
@@ -91,6 +94,12 @@ server.listen(3000, () => {
 function sendPlayerPositions() {
   wsServer.connections.forEach((connection) => {
     connection.send(JSON.stringify({ players: players }));
+  });
+}
+
+function sendScores() {
+  wsServer.connections.forEach((connection) => {
+    connection.send(JSON.stringify({ score: Array.from(scores.entries()) }));
   });
 }
 
@@ -156,24 +165,31 @@ function createNewPlayer() {
 function initPlayer(player, ws_conn) {
   players.push(player);
   hitPoints.set(player.color, gameSettings.playerHealth);
+  scores.set(player.color, 0);
   bulletMap.set(player.color, []);
   bulletCounters.set(player.color, 0);
   connectionMap.set(player.color, ws_conn);
+  respawnTimeoutIds.set(player.color, null);
 }
 
 function onPlayerDisconnect(disconnectedPlayer) {
   console.log(
     new Date() + " Player " + disconnectedPlayer.color + " disconnected"
   );
-  //Убрать игрока из состояния игры
-  players.splice(players.indexOf(disconnectedPlayer), 1);
+  let plIndex = players.indexOf(disconnectedPlayer);
+  //plIndex может оказаться равным -1, если игрок отключился
+  //после смерти и не дождался респавна
+  if (plIndex !== -1) {
+    players.splice(plIndex, 1);
+  }
   hitPoints.delete(disconnectedPlayer.color);
   bulletMap.delete(disconnectedPlayer.color);
+  scores.delete(disconnectedPlayer.color);
   bulletCounters.delete(disconnectedPlayer.color);
   connectionMap.delete(disconnectedPlayer.color);
-  //Разослать сообщение о дисконнекте игрока
+  clearTimeout(respawnTimeoutIds.get(disconnectedPlayer.color));
+  respawnTimeoutIds.delete(disconnectedPlayer.color);
   sendPlayerDisconnected(disconnectedPlayer.color);
-  //Вернуть цвет игрока в общий массив цветов
   colors.push(disconnectedPlayer.color);
 }
 
@@ -220,6 +236,7 @@ function updateBullets() {
       players.forEach((otherPlayer) => {
         if (checkBulletHit(bullet, otherPlayer)) {
           let hp = getPlayerHpAfterHit(otherPlayer);
+          incrementScore(playerColor);
           if (hp <= 0) {
             killedPlayers.push(otherPlayer.color);
             onPlayerDeath(otherPlayer);
@@ -274,9 +291,18 @@ function getPlayerHpAfterHit(player) {
   return result;
 }
 
+function incrementScore(playerColor) {
+  let score = scores.get(playerColor);
+  scores.set(playerColor, ++score);
+  sendScores();
+}
+
 function onPlayerDeath(player) {
   players.splice(players.indexOf(player), 1);
-  setTimeout(respawnPlayer, gameSettings.respawnDelay, player);
+  respawnTimeoutIds.set(
+    player.color,
+    setTimeout(respawnPlayer, gameSettings.respawnDelay, player)
+  );
 }
 
 function respawnPlayer(player) {

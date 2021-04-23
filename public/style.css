@@ -60,3 +60,81 @@ body {
 .low {
   background: rgb(46, 46, 46);
 }
+
+#scoreboard {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  width: fit-content;
+  z-index: 10;
+}
+
+#scoreboard > * + * {
+  margin-top: 0.2rem;
+}
+
+.score-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: white;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.score-item span {
+  margin-right: 1rem;
+  font-weight: 400;
+}
+
+.this-player-score {
+  border: 2px solid rgb(0, 160, 0);
+}
+
+.blue,
+.red,
+.green,
+.yellow,
+.purple,
+.darkblue {
+  position: relative;
+}
+
+.blue::after,
+.red::after,
+.green::after,
+.yellow::after,
+.purple::after,
+.darkblue::after {
+  position: absolute;
+  content: "";
+  width: 0.25rem;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.blue::after {
+  background: cyan;
+}
+
+.red::after {
+  background: red;
+}
+
+.green::after {
+  background: green;
+}
+
+.purple::after {
+  background: purple;
+}
+
+.yellow::after {
+  background: yellow;
+}
+
+.darkblue::after {
+  background: darkblue;
+}
